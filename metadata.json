@@ -1,0 +1,6 @@
+{
+  "name": "Shake & Volume Screen Control",
+  "description": "Native Android screen wake & control app with accelerometer shake detection and volume key wake handling.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
