@@ -17,7 +17,25 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
+    signingConfigs {
+        create("debugConfig") {
+            val ks = file("${rootDir}/debug.keystore")
+            if (ks.exists()) {
+                storeFile = ks
+                storePassword = "android"
+                keyAlias = "androiddebugkey"
+                keyPassword = "android"
+            }
+        }
+    }
+
     buildTypes {
+        debug {
+            val cfg = signingConfigs.findByName("debugConfig")
+            if (cfg?.storeFile?.exists() == true) {
+                signingConfig = cfg
+            }
+        }
         release {
             isMinifyEnabled = false
             proguardFiles(
