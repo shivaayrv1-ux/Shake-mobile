@@ -10,25 +10,28 @@ import android.content.Intent
 import android.content.IntentFilter
 import android.hardware.Sensor
 import android.hardware.SensorManager
+import android.media.AudioManager
+import android.media.VolumeProvider
+import android.media.session.MediaSession
+import android.media.session.PlaybackState
 import android.os.Build
 import android.os.IBinder
 import android.os.PowerManager
 import android.util.Log
 import androidx.core.app.NotificationCompat
 import com.screencontrol.shakevolume.MainActivity
+import com.screencontrol.shakevolume.R
 import com.screencontrol.shakevolume.receiver.ScreenStateReceiver
 import com.screencontrol.shakevolume.sensor.ShakeDetector
-import com.screencontrol.shakevolume.R
 import com.screencontrol.shakevolume.util.PowerUtils
 import com.screencontrol.shakevolume.util.PreferencesManager
 
 /**
- * Foreground Service that keeps low-power accelerometer monitoring alive when the display turns off.
- *
- * Uses:
- * 1. NotificationChannel with MIN priority to minimize distraction.
- * 2. Partial WakeLock to prevent kernel deep-sleep CPU suspension during sensor polling.
- * 3. Dynamic sensor sampling rate adjustments based on screen state.
+ * Long-lived foreground service maintaining:
+ * 1. Accelerometer sensor monitoring for intentional shake-to-wake / shake-to-lock gestures.
+ * 2. MediaSession hardware volume key routing to wake the screen when screen is off,
+ *    and passing volume directly through when screen is on.
+ * 3. Partial WakeLock to prevent CPU suspension during background sensor and key processing.
  */
 class ScreenControlForegroundService : Service() {
 
@@ -39,6 +42,7 @@ class ScreenControlForegroundService : Service() {
 
     private var screenStateReceiver: ScreenStateReceiver? = null
     private var partialWakeLock: PowerManager.WakeLock? = null
+    private var mediaSession: MediaSession? = null
 
     companion object {
         private const val TAG = "ScreenCtrlService"
@@ -59,7 +63,7 @@ class ScreenControlForegroundService : Service() {
         preferencesManager = PreferencesManager(this)
         sensorManager = getSystemService(Context.SENSOR_SERVICE) as SensorManager
 
-        // Attempt to find a hardware wake-up sensor first (supported on modern SoCs to wake CPU from sensor hub)
+        // Attempt to find a hardware wake-up sensor first (supported on modern SoCs)
         accelerometer = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
             sensorManager.getDefaultSensor(Sensor.TYPE_ACCELEROMETER, true)
                 ?: sensorManager.getDefaultSensor(Sensor.TYPE_ACCELEROMETER)
@@ -68,6 +72,7 @@ class ScreenControlForegroundService : Service() {
         }
 
         setupShakeDetector()
+        setupMediaSession()
         registerScreenStateReceiver()
         acquirePartialWakeLock()
     }
@@ -87,6 +92,7 @@ class ScreenControlForegroundService : Service() {
             else -> {
                 startInForeground()
                 startSensorListening()
+                updateMediaSessionVolumeRouting(PowerUtils.isScreenInteractive(this))
                 isRunning = true
             }
         }
@@ -109,7 +115,7 @@ class ScreenControlForegroundService : Service() {
 
         val notification: Notification = NotificationCompat.Builder(this, CHANNEL_ID)
             .setContentTitle("Shake & Volume Screen Control")
-            .setContentText("Monitoring motion for screen control")
+            .setContentText("Monitoring motion & buttons for screen control")
             .setSmallIcon(R.drawable.ic_shake)
             .setContentIntent(pendingIntent)
             .setOngoing(true)
@@ -127,7 +133,7 @@ class ScreenControlForegroundService : Service() {
                 "Screen Control Background Service",
                 NotificationManager.IMPORTANCE_LOW
             ).apply {
-                description = "Keeps shake-to-wake and screen control active in background"
+                description = "Keeps shake-to-wake and volume wake active in background"
                 setShowBadge(false)
             }
             val notificationManager = getSystemService(NotificationManager::class.java)
@@ -162,6 +168,64 @@ class ScreenControlForegroundService : Service() {
         }
     }
 
+    /**
+     * Initializes MediaSession.
+     * When screen is OFF, MediaSession intercepts hardware Volume UP button presses.
+     * When screen is ON, it releases remote volume handling to Android's native audio stream.
+     */
+    private fun setupMediaSession() {
+        try {
+            mediaSession = MediaSession(this, "ShakeVolumeMediaSession").apply {
+                setCallback(object : MediaSession.Callback() {})
+                val playbackState = PlaybackState.Builder()
+                    .setState(PlaybackState.STATE_PLAYING, PlaybackState.PLAYBACK_POSITION_UNKNOWN, 1.0f)
+                    .setActions(PlaybackState.ACTION_PLAY or PlaybackState.ACTION_PAUSE)
+                    .build()
+                setPlaybackState(playbackState)
+                isActive = true
+            }
+            updateMediaSessionVolumeRouting(PowerUtils.isScreenInteractive(this))
+            Log.i(TAG, "MediaSession initialized successfully for hardware key routing.")
+        } catch (e: Exception) {
+            Log.e(TAG, "Error initializing MediaSession: ${e.message}")
+        }
+    }
+
+    /**
+     * Updates MediaSession routing based on current display state:
+     * - Screen OFF: Remote VolumeProvider captures Volume UP to wake screen.
+     * - Screen ON: Native Local stream playback allows normal Volume UP adjustment.
+     */
+    private fun updateMediaSessionVolumeRouting(isScreenOn: Boolean) {
+        val session = mediaSession ?: return
+
+        if (!preferencesManager.isVolumeUpToWakeEnabled) {
+            // Feature disabled: always use local native volume
+            session.setPlaybackToLocal(AudioManager.STREAM_MUSIC)
+            return
+        }
+
+        if (!isScreenOn) {
+            // Screen is OFF: capture volume key events
+            val volumeProvider = object : VolumeProvider(VOLUME_CONTROL_RELATIVE, 100, 50) {
+                override fun onAdjustVolume(direction: Int) {
+                    Log.d(TAG, "MediaSession VolumeProvider onAdjustVolume: direction=$direction")
+                    if (direction > 0 && preferencesManager.isVolumeUpToWakeEnabled) {
+                        // Volume UP pressed while screen is OFF -> wake display!
+                        Log.i(TAG, "Hardware Volume UP pressed while screen OFF -> Waking screen...")
+                        PowerUtils.turnScreenOn(applicationContext)
+                    }
+                }
+            }
+            session.setPlaybackToRemote(volumeProvider)
+            Log.d(TAG, "MediaSession routed to remote VolumeProvider (Screen OFF mode).")
+        } else {
+            // Screen is ON: restore native system volume handling
+            session.setPlaybackToLocal(AudioManager.STREAM_MUSIC)
+            Log.d(TAG, "MediaSession routed to local STREAM_MUSIC (Screen ON mode - normal volume).")
+        }
+    }
+
     private fun startSensorListening() {
         val sensor = accelerometer
         if (sensor == null) {
@@ -169,9 +233,12 @@ class ScreenControlForegroundService : Service() {
             return
         }
 
+        if (!preferencesManager.isShakeToWakeEnabled) {
+            Log.d(TAG, "Shake detection disabled, skipping sensor registration.")
+            return
+        }
+
         shakeDetector?.let { detector ->
-            // Use SENSOR_DELAY_UI (~60,000 microseconds) for low power consumption
-            // while retaining high shake recognition accuracy
             val registered = sensorManager.registerListener(
                 detector,
                 sensor,
@@ -193,6 +260,14 @@ class ScreenControlForegroundService : Service() {
             updateThreshold(preferencesManager.shakeThreshold)
             updateCooldown(preferencesManager.shakeCooldownMs)
         }
+
+        if (preferencesManager.isShakeToWakeEnabled) {
+            startSensorListening()
+        } else {
+            stopSensorListening()
+        }
+
+        updateMediaSessionVolumeRouting(PowerUtils.isScreenInteractive(this))
     }
 
     private fun acquirePartialWakeLock() {
@@ -222,7 +297,7 @@ class ScreenControlForegroundService : Service() {
     private fun registerScreenStateReceiver() {
         screenStateReceiver = ScreenStateReceiver { isScreenOn ->
             Log.d(TAG, "Screen state broadcast received: isScreenOn=$isScreenOn")
-            // Optional: dynamically tweak sampling or wake locks
+            updateMediaSessionVolumeRouting(isScreenOn)
         }
         val filter = IntentFilter().apply {
             addAction(Intent.ACTION_SCREEN_ON)
@@ -248,6 +323,13 @@ class ScreenControlForegroundService : Service() {
         stopSensorListening()
         unregisterScreenStateReceiver()
         releasePartialWakeLock()
+
+        mediaSession?.apply {
+            isActive = false
+            release()
+        }
+        mediaSession = null
+
         stopForeground(STOP_FOREGROUND_REMOVE)
         stopSelf()
     }

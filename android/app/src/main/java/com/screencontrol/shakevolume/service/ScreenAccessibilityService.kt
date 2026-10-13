@@ -1,7 +1,7 @@
 package com.screencontrol.shakevolume.service
 
 import android.accessibilityservice.AccessibilityService
-import android.content.Intent
+import android.accessibilityservice.AccessibilityServiceInfo
 import android.os.Build
 import android.util.Log
 import android.view.KeyEvent
@@ -12,13 +12,8 @@ import com.screencontrol.shakevolume.util.PreferencesManager
 /**
  * Accessibility Service providing:
  * 1. Native, biometric-friendly screen locking via performGlobalAction(GLOBAL_ACTION_LOCK_SCREEN) (Android 9+)
- * 2. Hardware key observation via onKeyEvent (intercepting Volume UP when the OS delivers key events)
- *
- * TECHNICAL LIMITATION NOTE (Screen-Off Hardware Key Interception):
- * In standard, non-rooted Android, when the screen is powered off and the CPU enters deep sleep (suspend state),
- * the Linux kernel input subsystem suspends key event delivery to user-space AccessibilityServices.
- * While this service hooks KEYCODE_VOLUME_UP immediately upon waking/dimming, true deep-sleep hardware
- * interception requires either active media playback (MediaSession) or kernel-level key wake flags (gpio-keys).
+ * 2. Hardware key observation via onKeyEvent (intercepting Volume UP when the display is off to wake,
+ *    and passing through untouched when display is on for normal volume adjustment).
  */
 class ScreenAccessibilityService : AccessibilityService() {
 
@@ -51,6 +46,26 @@ class ScreenAccessibilityService : AccessibilityService() {
         Log.i(TAG, "ScreenAccessibilityService created and bound.")
     }
 
+    override fun onServiceConnected() {
+        super.onServiceConnected()
+        instance = this
+        if (!::preferencesManager.isInitialized) {
+            preferencesManager = PreferencesManager(this)
+        }
+
+        // Programmatically configure FLAG_REQUEST_FILTER_KEY_EVENTS to guarantee
+        // key event delivery across OEM ROMs (Samsung OneUI, Xiaomi MIUI, ColorOS, etc.)
+        val info = serviceInfo ?: AccessibilityServiceInfo()
+        info.flags = info.flags or
+                AccessibilityServiceInfo.FLAG_REQUEST_FILTER_KEY_EVENTS or
+                AccessibilityServiceInfo.FLAG_RETRIEVE_INTERACTIVE_WINDOWS
+        info.eventTypes = AccessibilityEvent.TYPES_ALL_MASK
+        info.feedbackType = AccessibilityServiceInfo.FEEDBACK_GENERIC
+        serviceInfo = info
+
+        Log.i(TAG, "ScreenAccessibilityService connected with FLAG_REQUEST_FILTER_KEY_EVENTS active.")
+    }
+
     override fun onDestroy() {
         super.onDestroy()
         instance = null
@@ -69,25 +84,26 @@ class ScreenAccessibilityService : AccessibilityService() {
         if (event == null) return super.onKeyEvent(event)
 
         val isVolumeUp = event.keyCode == KeyEvent.KEYCODE_VOLUME_UP
-        val isActionDown = event.action == KeyEvent.ACTION_DOWN
 
-        if (isVolumeUp && isActionDown) {
-            val isVolumeWakeEnabled = preferencesManager.isVolumeUpToWakeEnabled
-            Log.d(TAG, "Hardware Key: KEYCODE_VOLUME_UP detected. Feature enabled: $isVolumeWakeEnabled")
+        if (isVolumeUp && preferencesManager.isVolumeUpToWakeEnabled) {
+            val isInteractive = PowerUtils.isScreenInteractive(this)
 
-            if (isVolumeWakeEnabled) {
-                val isInteractive = PowerUtils.isScreenInteractive(this)
-                if (!isInteractive) {
-                    // Screen is non-interactive or turning off; trigger wake lock!
-                    Log.i(TAG, "Volume UP received while screen off. Waking screen...")
+            if (!isInteractive) {
+                // Screen is OFF: Wake screen on Volume UP and consume event so volume does NOT change
+                if (event.action == KeyEvent.ACTION_DOWN) {
+                    Log.i(TAG, "Volume UP received while screen OFF -> Waking display...")
                     PowerUtils.turnScreenOn(this)
-                    // Return true to consume the key so volume level doesn't jump
-                    return true
                 }
+                // Return true for both ACTION_DOWN and ACTION_UP to prevent volume change while screen was off
+                return true
+            } else {
+                // Screen is ON: User wants normal volume adjustment!
+                // Pass event directly through without interception
+                return super.onKeyEvent(event)
             }
         }
 
-        // Return false to pass the event to system volume manager under normal interactive usage
+        // Pass all other keys to system
         return super.onKeyEvent(event)
     }
 }

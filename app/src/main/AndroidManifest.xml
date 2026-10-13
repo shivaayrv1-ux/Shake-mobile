@@ -39,6 +39,16 @@
             </intent-filter>
         </activity>
 
+        <!-- Transparent Wake-Up Activity for instant screen illumination on modern Android -->
+        <activity
+            android:name=".ui.WakeUpActivity"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar"
+            android:excludeFromRecents="true"
+            android:noHistory="true"
+            android:showWhenLocked="true"
+            android:turnScreenOn="true"
+            android:exported="false" />
+
         <!-- Foreground Service to keep accelerometer monitoring active when screen turns off -->
         <service
             android:name=".service.ScreenControlForegroundService"

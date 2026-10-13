@@ -24,6 +24,15 @@ class PreferencesManager(context: Context) {
         get() = prefs.getLong(KEY_SHAKE_COOLDOWN_MS, DEFAULT_COOLDOWN_MS)
         set(value) = prefs.edit().putLong(KEY_SHAKE_COOLDOWN_MS, value).apply()
 
+    fun getSensitivityLabel(threshold: Float = shakeThreshold): String {
+        return when {
+            threshold <= 6.5f -> "Very Sensitive (Light Shake)"
+            threshold <= 10.5f -> "Balanced (Normal Shake)"
+            threshold <= 14.5f -> "Firm (Strong Shake)"
+            else -> "Heavy (Vigorous Shake)"
+        }
+    }
+
     companion object {
         private const val PREFS_NAME = "screen_control_prefs"
         private const val KEY_SHAKE_TO_WAKE = "pref_shake_to_wake"
@@ -31,11 +40,11 @@ class PreferencesManager(context: Context) {
         private const val KEY_SHAKE_THRESHOLD = "pref_shake_threshold"
         private const val KEY_SHAKE_COOLDOWN_MS = "pref_shake_cooldown_ms"
 
-        // Default sensitivity threshold: ~13.5 m/s² net acceleration
-        // High enough to prevent accidental pocket walking triggers, sensitive enough for intentional shake.
-        const val DEFAULT_SHAKE_THRESHOLD = 13.5f
+        // Default sensitivity threshold: 8.5 m/s² net acceleration
+        // Smooth and comfortable for intentional hand shakes without requiring violent arm force.
+        const val DEFAULT_SHAKE_THRESHOLD = 8.5f
 
         // Cooldown between triggers to prevent bouncing or multi-toggling
-        const val DEFAULT_COOLDOWN_MS = 2000L
+        const val DEFAULT_COOLDOWN_MS = 1800L
     }
 }

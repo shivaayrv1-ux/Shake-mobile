@@ -39,7 +39,7 @@ export default function App() {
   // Android Settings & Toggle States (Mirrors native PreferencesManager & Switches)
   const [isShakeEnabled, setIsShakeEnabled] = useState<boolean>(true);
   const [isVolumeUpEnabled, setIsVolumeUpEnabled] = useState<boolean>(true);
-  const [shakeThreshold, setShakeThreshold] = useState<number>(13.5);
+  const [shakeThreshold, setShakeThreshold] = useState<number>(8.5);
   const [cooldownRemaining, setCooldownRemaining] = useState<number>(0);
 
   // System & Permission States
@@ -493,10 +493,73 @@ include(":app")
                     Detects shaking motion to turn the screen ON or OFF using low-power accelerometer sampling.
                   </p>
 
-                  <div className="mt-3 bg-[#0B132B] rounded-xl px-3 py-2 flex items-center justify-between text-xs text-slate-400 border border-sky-950">
-                    <span>Threshold: {shakeThreshold} m/s² (Filtered)</span>
+                  {/* Manual Sensitivity Slider in Phone Mockup */}
+                  <div className="mt-3 bg-[#0B132B] rounded-xl p-3 border border-sky-950/60">
+                    <div className="flex items-center justify-between text-xs mb-1.5">
+                      <span className="font-semibold text-slate-200">Shake Sensitivity</span>
+                      <span className="text-sky-400 font-mono font-bold">
+                        {shakeThreshold.toFixed(1)} m/s² ({shakeThreshold <= 6.5 ? 'Light' : shakeThreshold <= 10.5 ? 'Normal' : 'Firm'})
+                      </span>
+                    </div>
+                    <input
+                      type="range"
+                      min="4.0"
+                      max="18.0"
+                      step="0.5"
+                      value={shakeThreshold}
+                      onChange={(e) => {
+                        const val = parseFloat(e.target.value);
+                        setShakeThreshold(val);
+                        addLog('MainActivity', 'D', `Shake sensitivity adjusted manually to ${val.toFixed(1)} m/s²`);
+                      }}
+                      className="w-full accent-sky-400 cursor-pointer h-1.5 bg-slate-800 rounded-lg"
+                    />
+                    <div className="flex justify-between text-[10px] text-slate-500 mt-1">
+                      <span>Halka (Light / 4.0)</span>
+                      <span>Zor se (Firm / 18.0)</span>
+                    </div>
+
+                    <div className="grid grid-cols-3 gap-1.5 mt-2.5">
+                      <button
+                        onClick={() => {
+                          setShakeThreshold(6.0);
+                          addLog('MainActivity', 'I', 'Preset applied: Light (6.0 m/s²) - easy shake');
+                        }}
+                        className={`py-1 text-[11px] rounded-lg font-medium transition-all ${
+                          shakeThreshold === 6.0 ? 'bg-sky-500 text-white font-bold' : 'bg-slate-800/80 text-slate-300 hover:bg-slate-700'
+                        }`}
+                      >
+                        Light (6.0)
+                      </button>
+                      <button
+                        onClick={() => {
+                          setShakeThreshold(8.5);
+                          addLog('MainActivity', 'I', 'Preset applied: Normal (8.5 m/s²) - default');
+                        }}
+                        className={`py-1 text-[11px] rounded-lg font-medium transition-all ${
+                          shakeThreshold === 8.5 ? 'bg-sky-500 text-white font-bold' : 'bg-slate-800/80 text-slate-300 hover:bg-slate-700'
+                        }`}
+                      >
+                        Normal (8.5)
+                      </button>
+                      <button
+                        onClick={() => {
+                          setShakeThreshold(13.0);
+                          addLog('MainActivity', 'I', 'Preset applied: Firm (13.0 m/s²) - strong shake');
+                        }}
+                        className={`py-1 text-[11px] rounded-lg font-medium transition-all ${
+                          shakeThreshold === 13.0 ? 'bg-sky-500 text-white font-bold' : 'bg-slate-800/80 text-slate-300 hover:bg-slate-700'
+                        }`}
+                      >
+                        Firm (13.0)
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="mt-2.5 bg-[#0B132B]/80 rounded-xl px-3 py-1.5 flex items-center justify-between text-[11px] text-slate-400 border border-sky-950/40">
+                    <span>Active Threshold: {shakeThreshold.toFixed(1)} m/s²</span>
                     <span className="text-sky-400 font-mono font-semibold">
-                      Cooldown: {cooldownRemaining > 0 ? `${(cooldownRemaining / 1000).toFixed(1)}s` : '2000 ms'}
+                      Cooldown: {cooldownRemaining > 0 ? `${(cooldownRemaining / 1000).toFixed(1)}s` : '1800 ms'}
                     </span>
                   </div>
                 </div>
@@ -558,19 +621,18 @@ include(":app")
                     </label>
                   </div>
 
-                  <p className="text-xs text-slate-400 mt-2.5 leading-relaxed">
-                    Wakes display using physical Volume UP key via Accessibility KeyEvents while screen is dimmed or standby.
-                  </p>
-
-                  {/* Warning callout for Android OS restriction */}
-                  <div className="mt-3 bg-amber-950/40 border border-amber-600/30 rounded-xl p-3 text-left">
-                    <div className="flex items-center gap-1.5 text-amber-400 font-bold text-xs">
-                      <AlertTriangle className="w-4 h-4 shrink-0" />
-                      <span>Android OS Hardware Limitation</span>
-                    </div>
-                    <p className="text-[11px] text-amber-200/80 mt-1.5 leading-relaxed">
-                      Android halts physical key scan matrices during deep sleep CPU suspension. Ordinary non-root user apps cannot intercept physical volume keys in deep sleep without active media playback.
+                  <div className="mt-2.5 space-y-1 text-xs text-slate-300">
+                    <p className="flex items-center gap-1.5 text-sky-300 font-medium">
+                      <span>• Screen OFF hone par:</span> Volume UP dabane se screen turn ON ho jayegi.
                     </p>
+                    <p className="flex items-center gap-1.5 text-slate-400">
+                      <span>• Screen ON hone par:</span> Normal volume badhega (audio volume increase hoga).
+                    </p>
+                  </div>
+
+                  <div className="mt-3 bg-sky-950/40 border border-sky-800/40 rounded-xl p-2.5 text-left flex items-center justify-between text-xs text-slate-400">
+                    <span className="text-[11px] text-slate-300">Routing Mode:</span>
+                    <span className="text-sky-400 font-mono font-semibold text-[11px]">MediaSession + Accessibility Dual Hook</span>
                   </div>
                 </div>
 
@@ -736,13 +798,13 @@ include(":app")
                     <span className="text-slate-400">Shake Sensitivity:</span>
                     <span className="font-mono text-sky-400 font-bold">{shakeThreshold.toFixed(1)} m/s²</span>
                     <span className="text-[10px] text-slate-500">
-                      (Default: 13.5 m/s² prevents pocket false-triggers)
+                      (Default: 8.5 m/s² for smooth &amp; comfortable hand shake)
                     </span>
                   </div>
                   <input
                     type="range"
-                    min="9.0"
-                    max="25.0"
+                    min="4.0"
+                    max="18.0"
                     step="0.5"
                     value={shakeThreshold}
                     onChange={(e) => {

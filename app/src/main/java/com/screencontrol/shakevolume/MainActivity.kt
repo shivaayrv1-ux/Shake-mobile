@@ -57,6 +57,11 @@ class MainActivity : AppCompatActivity() {
         binding.switchShake.isChecked = prefs.isShakeToWakeEnabled
         binding.switchVolumeUp.isChecked = prefs.isVolumeUpToWakeEnabled
 
+        // Initialize slider & sensitivity display
+        val currentThreshold = prefs.shakeThreshold.coerceIn(4.0f, 18.0f)
+        binding.sliderShakeSensitivity.value = currentThreshold
+        updateSensitivityDisplay(currentThreshold)
+
         updatePermissionIndicators()
         updateFeatureStatuses()
         syncServiceState()
@@ -68,6 +73,7 @@ class MainActivity : AppCompatActivity() {
             prefs.isShakeToWakeEnabled = isChecked
             updateFeatureStatuses()
             syncServiceState()
+            sendSettingsChangedBroadcast()
             val msg = if (isChecked) "Shake to Wake enabled" else "Shake to Wake disabled"
             Toast.makeText(this, msg, Toast.LENGTH_SHORT).show()
         }
@@ -76,8 +82,36 @@ class MainActivity : AppCompatActivity() {
         binding.switchVolumeUp.setOnCheckedChangeListener { _, isChecked ->
             prefs.isVolumeUpToWakeEnabled = isChecked
             updateFeatureStatuses()
+            syncServiceState()
+            sendSettingsChangedBroadcast()
             val msg = if (isChecked) "Volume UP to Wake enabled" else "Volume UP to Wake disabled"
             Toast.makeText(this, msg, Toast.LENGTH_SHORT).show()
+        }
+
+        // Shake Sensitivity Slider (Manual Capacity Adjustment)
+        binding.sliderShakeSensitivity.addOnChangeListener { _, value, fromUser ->
+            if (fromUser) {
+                setSensitivity(value)
+            }
+        }
+
+        // Quick Presets: Light, Normal, Firm
+        binding.btnPresetLight.setOnClickListener {
+            binding.sliderShakeSensitivity.value = 6.0f
+            setSensitivity(6.0f)
+            Toast.makeText(this, "Sensitivity set to Light (6.0 m/s²)", Toast.LENGTH_SHORT).show()
+        }
+
+        binding.btnPresetNormal.setOnClickListener {
+            binding.sliderShakeSensitivity.value = 8.5f
+            setSensitivity(8.5f)
+            Toast.makeText(this, "Sensitivity set to Normal (8.5 m/s²)", Toast.LENGTH_SHORT).show()
+        }
+
+        binding.btnPresetFirm.setOnClickListener {
+            binding.sliderShakeSensitivity.value = 13.0f
+            setSensitivity(13.0f)
+            Toast.makeText(this, "Sensitivity set to Firm (13.0 m/s²)", Toast.LENGTH_SHORT).show()
         }
 
         // Setup Step 1: Open Accessibility Settings
@@ -96,8 +130,30 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    private fun setSensitivity(threshold: Float) {
+        prefs.shakeThreshold = threshold
+        updateSensitivityDisplay(threshold)
+        sendSettingsChangedBroadcast()
+    }
+
+    private fun updateSensitivityDisplay(threshold: Float) {
+        val label = prefs.getSensitivityLabel(threshold)
+        val formatted = String.format("%.1f", threshold)
+        binding.tvShakeSensitivityValue.text = "$formatted m/s² ($label)"
+        binding.tvShakeThresholdInfo.text = "Threshold: $formatted m/s² (Active)"
+        binding.tvShakeCooldownInfo.text = "Cooldown: ${prefs.shakeCooldownMs} ms"
+    }
+
+    private fun sendSettingsChangedBroadcast() {
+        val intent = Intent(this, ScreenControlForegroundService::class.java).apply {
+            action = ScreenControlForegroundService.ACTION_SETTINGS_CHANGED
+        }
+        startService(intent)
+    }
+
     private fun syncServiceState() {
-        val shouldRun = prefs.isShakeToWakeEnabled
+        // Run service if EITHER Shake OR Volume UP to wake is enabled!
+        val shouldRun = prefs.isShakeToWakeEnabled || prefs.isVolumeUpToWakeEnabled
 
         val serviceIntent = Intent(this, ScreenControlForegroundService::class.java)
         if (shouldRun) {
@@ -136,16 +192,16 @@ class MainActivity : AppCompatActivity() {
             binding.tvVolumeStatus.setTextColor(ContextCompat.getColor(this, R.color.status_gray))
         } else if (!isAccessibilityEnabled) {
             binding.indicatorVolume.setBackgroundResource(R.drawable.dot_amber)
-            binding.tvVolumeStatus.text = getString(R.string.status_permission_needed)
+            binding.tvVolumeStatus.text = "MediaSession Active (Accessibility Recommended)"
             binding.tvVolumeStatus.setTextColor(ContextCompat.getColor(this, R.color.status_amber))
         } else {
             binding.indicatorVolume.setBackgroundResource(R.drawable.dot_active)
-            binding.tvVolumeStatus.text = "Active (Screen Dim/Standby)"
+            binding.tvVolumeStatus.text = "Active (Screen-Off Wake + Screen-On Vol)"
             binding.tvVolumeStatus.setTextColor(ContextCompat.getColor(this, R.color.status_green))
         }
 
         // Global Engine Badge
-        if (isShakeOn || (isVolumeOn && isAccessibilityEnabled)) {
+        if (isShakeOn || isVolumeOn) {
             binding.tvGlobalEngineBadge.text = "ONLINE"
             binding.tvGlobalEngineBadge.setTextColor(ContextCompat.getColor(this, R.color.status_green))
         } else {
@@ -158,12 +214,12 @@ class MainActivity : AppCompatActivity() {
         // 1. Accessibility status
         val isAccessEnabled = isAccessibilityServiceEnabled()
         if (isAccessEnabled) {
-            binding.tvAccessibilityStatus.text = "Enabled & Connected"
+            binding.tvAccessibilityStatus.text = "Enabled & Connected (Power Lock + Key Hook)"
             binding.tvAccessibilityStatus.setTextColor(ContextCompat.getColor(this, R.color.status_green))
             binding.btnOpenAccessibility.text = getString(R.string.permission_granted)
             binding.btnOpenAccessibility.isEnabled = false
         } else {
-            binding.tvAccessibilityStatus.text = "Required for native screen lock & key events"
+            binding.tvAccessibilityStatus.text = "Recommended for biometric screen lock and key filtering"
             binding.tvAccessibilityStatus.setTextColor(ContextCompat.getColor(this, R.color.text_tertiary))
             binding.btnOpenAccessibility.text = getString(R.string.permission_required)
             binding.btnOpenAccessibility.isEnabled = true
@@ -178,12 +234,12 @@ class MainActivity : AppCompatActivity() {
         }
 
         if (isBatteryIgnored) {
-            binding.tvBatteryStatus.text = "Unrestricted (Doze safe)"
+            binding.tvBatteryStatus.text = "Unrestricted (Doze safe background operation)"
             binding.tvBatteryStatus.setTextColor(ContextCompat.getColor(this, R.color.status_green))
             binding.btnDisableBatteryOpt.text = getString(R.string.permission_granted)
             binding.btnDisableBatteryOpt.isEnabled = false
         } else {
-            binding.tvBatteryStatus.text = "Optimized (May sleep on screen off)"
+            binding.tvBatteryStatus.text = "Optimized (May pause sensors during deep sleep)"
             binding.tvBatteryStatus.setTextColor(ContextCompat.getColor(this, R.color.text_tertiary))
             binding.btnDisableBatteryOpt.text = getString(R.string.permission_required)
             binding.btnDisableBatteryOpt.isEnabled = true

@@ -5,19 +5,20 @@ import android.hardware.SensorEvent
 import android.hardware.SensorEventListener
 import android.os.SystemClock
 import android.util.Log
+import kotlin.math.abs
 import kotlin.math.sqrt
 
 /**
- * Battery-efficient, robust accelerometer shake detector.
+ * Battery-efficient, responsive accelerometer shake detector.
  *
- * Distinguishes intentional vigorous shakes from regular walking or car vibrations by:
- * 1. Computing Euclidean acceleration vector magnitude minus gravity.
- * 2. Requiring rapid directional reversals within a narrow time window.
- * 3. Enforcing a strict post-trigger cooldown period.
+ * Distinguishes intentional shakes from pocket walking/vibrations by:
+ * 1. Computing Euclidean acceleration vector deviation from gravity.
+ * 2. Requiring directional movement reversals within a generous human-wrist motion window (750ms).
+ * 3. Enforcing a strict post-trigger cooldown period to prevent debounce jitter.
  */
 class ShakeDetector(
-    private var threshold: Float = 13.5f,
-    private var cooldownMs: Long = 2000L,
+    private var threshold: Float = 8.5f,
+    private var cooldownMs: Long = 1800L,
     private val onShakeDetected: () -> Unit
 ) : SensorEventListener {
 
@@ -31,12 +32,13 @@ class ShakeDetector(
     companion object {
         private const val TAG = "ShakeDetector"
         private const val GRAVITY_EARTH = 9.80665f
-        private const val DIRECTION_CHANGE_WINDOW_MS = 450L
-        private const val MIN_DIRECTION_CHANGES = 2
+        // 750ms provides a natural human hand-shake window (previous 450ms was overly strict)
+        private const val DIRECTION_CHANGE_WINDOW_MS = 750L
     }
 
     fun updateThreshold(newThreshold: Float) {
         this.threshold = newThreshold
+        Log.d(TAG, "ShakeDetector threshold updated to $newThreshold m/s²")
     }
 
     fun updateCooldown(newCooldownMs: Long) {
@@ -57,27 +59,32 @@ class ShakeDetector(
         val y = event.values[1]
         val z = event.values[2]
 
-        // 2. Vector magnitude calculation
+        // 2. Vector magnitude deviation from Earth gravity (handles both positive and negative G forces)
         val totalAcceleration = sqrt(x * x + y * y + z * z)
-        val netAcceleration = totalAcceleration - GRAVITY_EARTH
+        val netAcceleration = abs(totalAcceleration - GRAVITY_EARTH)
 
         // 3. Threshold check
         if (netAcceleration > threshold) {
-            // Check for directional reversal (shake back-and-forth)
+            // Check for directional movement delta
             val deltaX = x - lastX
             val deltaY = y - lastY
             val deltaZ = z - lastZ
 
             val movementMagnitude = sqrt(deltaX * deltaX + deltaY * deltaY + deltaZ * deltaZ)
 
-            if (movementMagnitude > threshold * 0.75f) {
+            // When user sets light sensitivity (< 7.0), require lower directional magnitude
+            val requiredMagnitude = if (threshold < 7.0f) threshold * 0.5f else threshold * 0.6f
+
+            if (movementMagnitude > requiredMagnitude) {
                 if (now - lastDirectionChangeTime < DIRECTION_CHANGE_WINDOW_MS) {
                     directionChangeCount++
-                    if (directionChangeCount >= MIN_DIRECTION_CHANGES) {
+                    // For sensitive setting, 1 strong or 2 standard direction changes triggers; otherwise 2
+                    val minChanges = if (threshold <= 6.0f) 1 else 2
+                    if (directionChangeCount >= minChanges) {
                         // Confirmed valid intentional shake!
                         lastTriggerTime = now
                         directionChangeCount = 0
-                        Log.d(TAG, "Valid shake detected! NetAcc: $netAcceleration, Count: $directionChangeCount")
+                        Log.i(TAG, "Valid shake detected! NetAcc: $netAcceleration, Threshold: $threshold")
                         onShakeDetected.invoke()
                     }
                 } else {
