@@ -54,7 +54,7 @@ class ShakeDetector(
         }
 
         val x = event.values[0]
-        valy = event.values[1]
+        val y = event.values[1]
         val z = event.values[2]
 
         // 2. Vector magnitude calculation

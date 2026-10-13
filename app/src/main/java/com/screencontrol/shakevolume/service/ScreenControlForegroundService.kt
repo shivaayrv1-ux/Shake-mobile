@@ -18,6 +18,7 @@ import androidx.core.app.NotificationCompat
 import com.screencontrol.shakevolume.MainActivity
 import com.screencontrol.shakevolume.receiver.ScreenStateReceiver
 import com.screencontrol.shakevolume.sensor.ShakeDetector
+import com.screencontrol.shakevolume.R
 import com.screencontrol.shakevolume.util.PowerUtils
 import com.screencontrol.shakevolume.util.PreferencesManager
 
@@ -109,7 +110,7 @@ class ScreenControlForegroundService : Service() {
         val notification: Notification = NotificationCompat.Builder(this, CHANNEL_ID)
             .setContentTitle("Shake & Volume Screen Control")
             .setContentText("Monitoring motion for screen control")
-            .setSmallIcon(android.R.drawable.ic_lock_idle_power)
+            .setSmallIcon(R.drawable.ic_shake)
             .setContentIntent(pendingIntent)
             .setOngoing(true)
             .setPriority(NotificationCompat.PRIORITY_LOW)
