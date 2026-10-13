@@ -10,6 +10,7 @@ import android.content.Intent
 import android.content.IntentFilter
 import android.hardware.Sensor
 import android.hardware.SensorManager
+import android.media.AudioAttributes
 import android.media.AudioManager
 import android.media.VolumeProvider
 import android.media.session.MediaSession
@@ -191,6 +192,14 @@ class ScreenControlForegroundService : Service() {
         }
     }
 
+    private val localAudioAttributes: AudioAttributes by lazy {
+        AudioAttributes.Builder()
+            .setLegacyStreamType(AudioManager.STREAM_MUSIC)
+            .setUsage(AudioAttributes.USAGE_MEDIA)
+            .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
+            .build()
+    }
+
     /**
      * Updates MediaSession routing based on current display state:
      * - Screen OFF: Remote VolumeProvider captures Volume UP to wake screen.
@@ -201,13 +210,13 @@ class ScreenControlForegroundService : Service() {
 
         if (!preferencesManager.isVolumeUpToWakeEnabled) {
             // Feature disabled: always use local native volume
-            session.setPlaybackToLocal(AudioManager.STREAM_MUSIC)
+            session.setPlaybackToLocal(localAudioAttributes)
             return
         }
 
         if (!isScreenOn) {
             // Screen is OFF: capture volume key events
-            val volumeProvider = object : VolumeProvider(VOLUME_CONTROL_RELATIVE, 100, 50) {
+            val volumeProvider = object : VolumeProvider(VolumeProvider.VOLUME_CONTROL_RELATIVE, 100, 50) {
                 override fun onAdjustVolume(direction: Int) {
                     Log.d(TAG, "MediaSession VolumeProvider onAdjustVolume: direction=$direction")
                     if (direction > 0 && preferencesManager.isVolumeUpToWakeEnabled) {
@@ -221,7 +230,7 @@ class ScreenControlForegroundService : Service() {
             Log.d(TAG, "MediaSession routed to remote VolumeProvider (Screen OFF mode).")
         } else {
             // Screen is ON: restore native system volume handling
-            session.setPlaybackToLocal(AudioManager.STREAM_MUSIC)
+            session.setPlaybackToLocal(localAudioAttributes)
             Log.d(TAG, "MediaSession routed to local STREAM_MUSIC (Screen ON mode - normal volume).")
         }
     }
