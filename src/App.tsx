@@ -10,7 +10,6 @@ import {
   Download,
   Power,
   RotateCcw,
-  CheckCircle2,
   BookOpen,
   Copy,
   Check,
@@ -18,23 +17,12 @@ import {
   BatteryCharging,
   Cpu,
   Layers,
-  Sparkles,
-  Globe,
-  Bell,
-  Home,
-  Square,
-  ChevronLeft,
-  X,
-  Wifi,
-  Bluetooth,
-  Moon,
-  ExternalLink
+  HelpCircle,
+  ExternalLink,
+  Info
 } from 'lucide-react';
 import JSZip from 'jszip';
 import { ANDROID_PROJECT_FILES, AndroidProjectFile } from './androidProjectFiles.ts';
-import { ChromeBrowser } from './components/ChromeBrowser.tsx';
-import { AndroidHomeScreen } from './components/AndroidHomeScreen.tsx';
-import { AndroidSettingsApp } from './components/AndroidSettingsApp.tsx';
 
 interface LogEntry {
   id: string;
@@ -46,7 +34,7 @@ interface LogEntry {
 
 export default function App() {
   // Navigation tabs
-  const [activeTab, setActiveTab] = useState<'device' | 'code' | 'architecture'>('device');
+  const [activeTab, setActiveTab] = useState<'app' | 'code' | 'architecture'>('app');
 
   // Android Settings & Toggle States (Mirrors native PreferencesManager & Switches)
   const [isShakeEnabled, setIsShakeEnabled] = useState<boolean>(true);
@@ -58,14 +46,11 @@ export default function App() {
   const [isAccessibilityGranted, setIsAccessibilityGranted] = useState<boolean>(true);
   const [isBatteryUnrestricted, setIsBatteryUnrestricted] = useState<boolean>(true);
 
-  // Phone Simulation State
+  // Screen interactive state for simulation
   const [isScreenInteractive, setIsScreenInteractive] = useState<boolean>(true);
-  const [isShakingAnim, setIsShakingAnim] = useState<boolean>(false);
-  const [hapticPulse, setHapticPulse] = useState<boolean>(false);
   const [volumeLevel, setVolumeLevel] = useState<number>(65);
   const [showVolumeSlider, setShowVolumeSlider] = useState<boolean>(false);
-  const [currentMobileApp, setCurrentMobileApp] = useState<'screencontrol' | 'chrome' | 'home' | 'settings' | 'recents'>('screencontrol');
-  const [isNotificationShadeOpen, setIsNotificationShadeOpen] = useState<boolean>(false);
+  const [showPreviewGuide, setShowPreviewGuide] = useState<boolean>(false);
 
   // Code Explorer State
   const [selectedFile, setSelectedFile] = useState<AndroidProjectFile>(ANDROID_PROJECT_FILES[0]);
@@ -101,7 +86,6 @@ export default function App() {
   const logContainerRef = useRef<HTMLDivElement>(null);
   const cooldownTimerRef = useRef<NodeJS.Timeout | null>(null);
 
-  // Add Logcat helper
   const addLog = (tag: string, level: 'D' | 'I' | 'W' | 'E', message: string) => {
     const now = new Date();
     const timeStr = `${now.toTimeString().split(' ')[0]}.${String(now.getMilliseconds()).padStart(3, '0')}`;
@@ -130,11 +114,6 @@ export default function App() {
       return;
     }
 
-    setIsShakingAnim(true);
-    setHapticPulse(true);
-    setTimeout(() => setIsShakingAnim(false), 550);
-    setTimeout(() => setHapticPulse(false), 200);
-
     addLog('ShakeDetector', 'D', `Accelerometer vector spike: net_acc = ${netMagnitude.toFixed(2)} m/s² (threshold: ${shakeThreshold} m/s²). Direction shifts = 2.`);
 
     if (!isShakeEnabled) {
@@ -159,7 +138,6 @@ export default function App() {
 
     // Screen ON/OFF Toggle
     if (isScreenInteractive) {
-      // Screen is ON -> Lock / Turn OFF
       addLog('ScreenCtrlService', 'I', 'Valid shake confirmed! Screen is ON -> Invoking PowerUtils.turnScreenOff()');
       if (isAccessibilityGranted) {
         addLog('ScreenAccessService', 'I', 'performGlobalAction(GLOBAL_ACTION_LOCK_SCREEN) executed. Biometrics retained.');
@@ -168,7 +146,6 @@ export default function App() {
         addLog('PowerUtils', 'W', 'Accessibility permission missing! Cannot invoke GLOBAL_ACTION_LOCK_SCREEN.');
       }
     } else {
-      // Screen is OFF -> Wake / Turn ON
       addLog('ScreenCtrlService', 'I', 'Valid shake confirmed! Screen is OFF -> Invoking PowerUtils.turnScreenOn()');
       addLog('PowerUtils', 'I', 'PowerManager.newWakeLock(SCREEN_BRIGHT_WAKE_LOCK | ACQUIRE_CAUSES_WAKEUP). Screen awakened.');
       setIsScreenInteractive(true);
@@ -180,7 +157,6 @@ export default function App() {
     addLog('LinuxKernel', 'D', 'Hardware Key Event: KEYCODE_VOLUME_UP (ScanCode 115, Action DOWN)');
 
     if (!isScreenInteractive) {
-      // Screen is currently OFF
       if (!isVolumeUpEnabled) {
         addLog('ScreenAccessService', 'I', 'Volume UP pressed while screen off, but "Enable Volume UP to Wake" is DISABLED.');
         return;
@@ -193,11 +169,8 @@ export default function App() {
 
       addLog('ScreenAccessService', 'I', 'onKeyEvent intercepted KEYCODE_VOLUME_UP during standby display state.');
       addLog('PowerUtils', 'I', 'WakeLock acquired via Volume UP trigger! Display illuminated.');
-      setHapticPulse(true);
-      setTimeout(() => setHapticPulse(false), 200);
       setIsScreenInteractive(true);
     } else {
-      // Screen is ON -> standard volume step
       setVolumeLevel((prev) => Math.min(100, prev + 10));
       setShowVolumeSlider(true);
       setTimeout(() => setShowVolumeSlider(false), 2500);
@@ -205,89 +178,33 @@ export default function App() {
     }
   };
 
-  const pressVolumeDown = () => {
-    if (isScreenInteractive) {
-      setVolumeLevel((prev) => Math.max(0, prev - 10));
-      setShowVolumeSlider(true);
-      setTimeout(() => setShowVolumeSlider(false), 2500);
-    }
-    addLog('LinuxKernel', 'D', 'Hardware Key Event: KEYCODE_VOLUME_DOWN');
-  };
-
   const pressPowerButton = () => {
-    setHapticPulse(true);
-    setTimeout(() => setHapticPulse(false), 150);
     setIsScreenInteractive((prev) => !prev);
     addLog('PowerManager', 'I', `Physical Power Key toggled. Screen interactive: ${!isScreenInteractive}`);
   };
 
-  // Copy code helper
   const copyCode = () => {
     navigator.clipboard.writeText(selectedFile.content);
     setHasCopiedCode(true);
     setTimeout(() => setHasCopiedCode(false), 2000);
   };
 
-  // Export full Android project as ZIP
   const exportProjectZip = async () => {
     try {
       setIsExportingZip(true);
       const zip = new JSZip();
 
-      // Root files
-      zip.file(
-        'settings.gradle.kts',
-        'rootProject.name = "ShakeVolumeScreenControl"\ninclude(":app")\n'
-      );
-      zip.file(
-        'build.gradle.kts',
-        'plugins {\n    alias(libs.plugins.android.application) apply false\n    alias(libs.plugins.kotlin.android) apply false\n}\n'
-      );
-      zip.file(
-        'gradle.properties',
-        'org.gradle.jvmargs=-Xmx2048m -Dfile.encoding=UTF-8\nandroid.useAndroidX=true\nandroid.nonTransitiveRClass=true\n'
-      );
-      zip.file(
-        'gradle/libs.versions.toml',
-        `[versions]
-agp = "8.7.3"
-kotlin = "2.0.21"
-coreKtx = "1.15.0"
-appcompat = "1.7.0"
-material = "1.12.0"
-constraintlayout = "2.2.0"
-lifecycleRuntimeKtx = "2.8.7"
+      zip.file('settings.gradle.kts', 'rootProject.name = "ShakeVolumeScreenControl"\ninclude(":app")\n');
+      zip.file('build.gradle.kts', 'plugins {\n    alias(libs.plugins.android.application) apply false\n    alias(libs.plugins.kotlin.android) apply false\n}\n');
+      zip.file('gradle.properties', 'org.gradle.jvmargs=-Xmx2048m -Dfile.encoding=UTF-8\nandroid.useAndroidX=true\nandroid.nonTransitiveRClass=true\n');
+      zip.file('gradle/wrapper/gradle-wrapper.properties', 'distributionBase=GRADLE_USER_HOME\ndistributionPath=wrapper/dists\ndistributionUrl=https\\://services.gradle.org/distributions/gradle-8.10.2-bin.zip\nnetworkTimeout=10000\nvalidateDistributionUrl=true\nzipStoreBase=GRADLE_USER_HOME\nzipStorePath=wrapper/dists\n');
+      zip.file('gradlew', '#!/bin/sh\nexec java -jar gradle/wrapper/gradle-wrapper.jar "$@"\n');
+      zip.file('gradlew.bat', '@rem Gradle startup script for Windows\njava -jar gradle\\wrapper\\gradle-wrapper.jar %*\n');
 
-[libraries]
-androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
-androidx-appcompat = { group = "androidx.appcompat", name = "appcompat", version.ref = "appcompat" }
-material = { group = "com.google.android.material", name = "material", version.ref = "material" }
-androidx-constraintlayout = { group = "androidx.constraintlayout", name = "constraintlayout", version.ref = "constraintlayout" }
-
-[plugins]
-android-application = { id = "com.android.application", version.ref = "agp" }
-kotlin-android = { id = "org.jetbrains.kotlin.android", version.ref = "kotlin" }`
-      );
-
-      zip.file(
-        'gradle/wrapper/gradle-wrapper.properties',
-        'distributionBase=GRADLE_USER_HOME\ndistributionPath=wrapper/dists\ndistributionUrl=https\\://services.gradle.org/distributions/gradle-8.10.2-bin.zip\nnetworkTimeout=10000\nvalidateDistributionUrl=true\nzipStoreBase=GRADLE_USER_HOME\nzipStorePath=wrapper/dists\n'
-      );
-      zip.file(
-        'gradlew',
-        '#!/bin/sh\n# Gradle start up script\nexec java -jar gradle/wrapper/gradle-wrapper.jar "$@"\n'
-      );
-      zip.file(
-        'gradlew.bat',
-        '@rem Gradle startup script for Windows\njava -jar gradle\\wrapper\\gradle-wrapper.jar %*\n'
-      );
-
-      // Add each configured project file
       ANDROID_PROJECT_FILES.forEach((file) => {
         zip.file(file.path, file.content);
       });
 
-      // Generate blob
       const content = await zip.generateAsync({ type: 'blob' });
       const url = URL.createObjectURL(content);
       const link = document.createElement('a');
@@ -330,15 +247,15 @@ kotlin-android = { id = "org.jetbrains.kotlin.android", version.ref = "kotlin" }
           {/* Navigation Tabs */}
           <div className="flex items-center gap-1.5 bg-slate-900/80 p-1 rounded-xl border border-slate-800">
             <button
-              onClick={() => setActiveTab('device')}
+              onClick={() => setActiveTab('app')}
               className={`flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-xs font-medium transition-all ${
-                activeTab === 'device'
+                activeTab === 'app'
                   ? 'bg-sky-500 text-white shadow-md shadow-sky-500/30'
                   : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/60'
               }`}
             >
               <Smartphone className="w-3.5 h-3.5" />
-              Interactive Device & Testing
+              Application & Sensor Engine
             </button>
             <button
               onClick={() => setActiveTab('code')}
@@ -364,641 +281,351 @@ kotlin-android = { id = "org.jetbrains.kotlin.android", version.ref = "kotlin" }
             </button>
           </div>
 
-          {/* Download ZIP button in header */}
-          <button
-            onClick={exportProjectZip}
-            disabled={isExportingZip}
-            className="hidden md:flex items-center gap-2 px-3.5 py-1.5 bg-slate-800 hover:bg-slate-700 active:scale-95 text-sky-400 border border-sky-500/30 rounded-lg text-xs font-semibold transition shadow-sm"
-          >
-            <Download className="w-3.5 h-3.5" />
-            {isExportingZip ? 'Building ZIP...' : 'Export Project ZIP'}
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setShowPreviewGuide(!showPreviewGuide)}
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-900 hover:bg-slate-800 text-slate-300 border border-slate-700 rounded-lg text-xs font-medium transition"
+              title="How to enable Google AI Studio's built-in Mobile Device frame"
+            >
+              <HelpCircle className="w-3.5 h-3.5 text-sky-400" />
+              <span className="hidden sm:inline">AI Studio Device View</span>
+            </button>
+
+            <button
+              onClick={exportProjectZip}
+              disabled={isExportingZip}
+              className="flex items-center gap-2 px-3.5 py-1.5 bg-slate-800 hover:bg-slate-700 active:scale-95 text-sky-400 border border-sky-500/30 rounded-lg text-xs font-semibold transition shadow-sm"
+            >
+              <Download className="w-3.5 h-3.5" />
+              {isExportingZip ? 'Building ZIP...' : 'Export Project ZIP'}
+            </button>
+          </div>
         </div>
       </header>
 
+      {/* AI Studio Interface Guide Banner */}
+      {showPreviewGuide && (
+        <div className="bg-sky-950/70 border-b border-sky-500/30 px-4 py-3 text-xs text-sky-200">
+          <div className="max-w-7xl mx-auto flex items-start justify-between gap-4">
+            <div className="flex items-start gap-2.5">
+              <Info className="w-4 h-4 text-sky-400 shrink-0 mt-0.5" />
+              <div>
+                <p className="font-semibold text-white">
+                  Restoring Google AI Studio&apos;s Full-Device Mobile Preview
+                </p>
+                <p className="mt-1 text-slate-300 leading-relaxed">
+                  In Google AI Studio, the preview toolbar at the top of the right preview panel has a{' '}
+                  <strong className="text-white">Mobile Device Toggle</strong> (phone icon next to Desktop). Clicking it places the application inside AI Studio&apos;s native responsive phone viewport.
+                  For native Android cloud emulators (with real system Chrome and Home screen), Google AI Studio runs an Android Virtual Device session when starting from an Android workspace template.
+                </p>
+              </div>
+            </div>
+            <button
+              onClick={() => setShowPreviewGuide(false)}
+              className="text-slate-400 hover:text-white px-2 py-1 text-xs"
+            >
+              Dismiss
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Main Body */}
       <main className="flex-1 max-w-7xl mx-auto w-full p-4 lg:p-8">
-        {activeTab === 'device' && (
+        {activeTab === 'app' && (
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
-            {/* Left Column: Interactive Native Android Device Frame */}
-            <div className="lg:col-span-5 flex flex-col items-center">
-              <div className="w-full flex items-center justify-between mb-3 px-2">
+            {/* Left Column: The Native Application UI */}
+            <div className="lg:col-span-6 flex flex-col gap-4">
+              <div className="flex items-center justify-between px-1">
                 <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
                   <Smartphone className="w-3.5 h-3.5 text-sky-400" />
-                  Target Device Simulator (Pixel 9 Pro / API 35)
+                  Shake & Volume Screen Control App
                 </span>
-                <span className="text-[11px] text-slate-500">
-                  Screen: {isScreenInteractive ? 'ON (Interactive)' : 'OFF (Standby Lock)'}
+                <span className="text-xs font-mono">
+                  Display State:{' '}
+                  <span className={isScreenInteractive ? 'text-emerald-400 font-bold' : 'text-slate-500 font-bold'}>
+                    {isScreenInteractive ? 'SCREEN ON (Interactive)' : 'SCREEN OFF (Standby Lock)'}
+                  </span>
                 </span>
               </div>
 
-              {/* Emulator Quick App Switcher Bar */}
-              <div className="w-full flex items-center justify-between gap-1 mb-3 bg-slate-900/90 p-1 rounded-xl border border-slate-800">
-                <button
-                  onClick={() => {
-                    setIsNotificationShadeOpen(false);
-                    setCurrentMobileApp('screencontrol');
-                  }}
-                  className={`flex-1 flex items-center justify-center gap-1 py-1 rounded-lg text-[10px] font-medium transition ${
-                    currentMobileApp === 'screencontrol' && !isNotificationShadeOpen
-                      ? 'bg-sky-500 text-white font-bold shadow-md shadow-sky-500/30'
-                      : 'text-slate-400 hover:text-white hover:bg-slate-800/60'
-                  }`}
-                >
-                  <Zap className="w-3 h-3" />
-                  Shake App
-                </button>
-
-                <button
-                  onClick={() => {
-                    setIsNotificationShadeOpen(false);
-                    setCurrentMobileApp('chrome');
-                  }}
-                  className={`flex-1 flex items-center justify-center gap-1 py-1 rounded-lg text-[10px] font-medium transition ${
-                    currentMobileApp === 'chrome' && !isNotificationShadeOpen
-                      ? 'bg-blue-600 text-white font-bold shadow-md shadow-blue-600/30'
-                      : 'text-slate-400 hover:text-white hover:bg-slate-800/60'
-                  }`}
-                >
-                  <Globe className="w-3 h-3 text-blue-400" />
-                  Chrome Browser
-                </button>
-
-                <button
-                  onClick={() => {
-                    setIsNotificationShadeOpen(false);
-                    setCurrentMobileApp('home');
-                  }}
-                  className={`flex-1 flex items-center justify-center gap-1 py-1 rounded-lg text-[10px] font-medium transition ${
-                    currentMobileApp === 'home' && !isNotificationShadeOpen
-                      ? 'bg-slate-700 text-white font-bold shadow'
-                      : 'text-slate-400 hover:text-white hover:bg-slate-800/60'
-                  }`}
-                >
-                  <Home className="w-3 h-3" />
-                  Home
-                </button>
-
-                <button
-                  onClick={() => setIsNotificationShadeOpen(!isNotificationShadeOpen)}
-                  className={`flex items-center justify-center gap-1 px-2 py-1 rounded-lg text-[10px] font-medium transition ${
-                    isNotificationShadeOpen
-                      ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40 font-bold'
-                      : 'text-slate-400 hover:text-white hover:bg-slate-800/60'
-                  }`}
-                  title="Toggle Notification Shade"
-                >
-                  <Bell className="w-3 h-3" />
-                  Shade
-                </button>
-              </div>
-
-              {/* Physical Phone Frame Wrapper */}
-              <div className="relative group">
-                {/* Physical Hardware Buttons on Phone Frame Exterior */}
-                {/* Volume Up */}
-                <button
-                  onClick={pressVolumeUp}
-                  title="Physical Volume UP Button"
-                  className="absolute -left-3.5 top-28 w-2.5 h-12 bg-slate-700 hover:bg-sky-500 active:bg-sky-400 rounded-l-md transition cursor-pointer z-20 border-l border-y border-slate-600 shadow-md"
-                />
-                {/* Volume Down */}
-                <button
-                  onClick={pressVolumeDown}
-                  title="Physical Volume DOWN Button"
-                  className="absolute -left-3.5 top-44 w-2.5 h-12 bg-slate-700 hover:bg-slate-600 active:bg-slate-500 rounded-l-md transition cursor-pointer z-20 border-l border-y border-slate-600 shadow-md"
-                />
-                {/* Power Key */}
-                <button
-                  onClick={pressPowerButton}
-                  title="Physical Power Button (Lock/Wake)"
-                  className="absolute -right-3.5 top-32 w-2.5 h-14 bg-slate-700 hover:bg-red-500 active:bg-red-400 rounded-r-md transition cursor-pointer z-20 border-r border-y border-slate-600 shadow-md"
-                />
-
-                {/* Outer Bezel */}
-                <div
-                  className={`w-[340px] sm:w-[380px] h-[720px] rounded-[44px] bg-[#121620] p-3 shadow-2xl border-4 transition-all duration-300 relative ${
-                    hapticPulse
-                      ? 'border-sky-400 shadow-sky-500/40 ring-4 ring-sky-500/20'
-                      : 'border-slate-800 shadow-black/80'
-                  } ${isShakingAnim ? 'animate-bounce' : ''}`}
-                >
-                  {/* Inner Screen Bezel */}
-                  <div className="w-full h-full rounded-[34px] overflow-hidden bg-[#0B0F17] relative flex flex-col border border-slate-800/80">
-                    {/* Native Screen Status Bar with pull-down notification trigger */}
+              {/* Volume HUD Indicator */}
+              {showVolumeSlider && isScreenInteractive && (
+                <div className="bg-slate-900 border border-sky-500/40 rounded-xl p-3 flex items-center gap-3 animate-in fade-in duration-150">
+                  <Volume2 className="w-4 h-4 text-sky-400" />
+                  <div className="flex-1 bg-slate-800 h-2 rounded-full overflow-hidden">
                     <div
-                      onClick={() => setIsNotificationShadeOpen(!isNotificationShadeOpen)}
-                      className="h-7 bg-transparent px-5 flex items-center justify-between text-[11px] font-semibold text-slate-400 z-30 select-none cursor-pointer hover:bg-slate-800/40 transition"
-                      title="Tap to toggle Notification Shade"
-                    >
-                      <div className="flex items-center gap-1.5">
-                        <span>12:00</span>
-                        {isShakeEnabled && (
-                          <span title="Screen Control Service Active">
-                            <Zap className="w-3 h-3 text-sky-400" />
-                          </span>
-                        )}
-                      </div>
-                      {/* Dynamic Camera Punch Hole */}
-                      <div className="w-4 h-4 rounded-full bg-black border border-slate-800 flex items-center justify-center">
-                        <div className="w-1.5 h-1.5 rounded-full bg-slate-900" />
-                      </div>
-                      <div className="flex items-center gap-1.5 text-slate-300">
-                        <span className="text-[10px] font-mono">5G</span>
-                        <BatteryCharging className="w-3.5 h-3.5 text-emerald-400" />
-                      </div>
+                      className="bg-sky-400 h-full transition-all duration-100 rounded-full"
+                      style={{ width: `${volumeLevel}%` }}
+                    />
+                  </div>
+                  <span className="text-xs font-mono font-bold text-sky-300">{volumeLevel}%</span>
+                </div>
+              )}
+
+              {/* Native App Main Card */}
+              <div className="bg-[#0D121F] border border-slate-800 rounded-2xl p-5 shadow-2xl relative overflow-hidden">
+                {/* Screen Off Overlay */}
+                {!isScreenInteractive && (
+                  <div className="absolute inset-0 bg-black/95 z-30 flex flex-col items-center justify-center p-6 text-center animate-in fade-in duration-200">
+                    <div className="w-14 h-14 rounded-full bg-slate-900 border border-slate-800 flex items-center justify-center text-slate-500 mb-3">
+                      <Power className="w-6 h-6 text-slate-600" />
                     </div>
+                    <h3 className="text-sm font-bold text-slate-300">Display Standby (Screen OFF)</h3>
+                    <p className="text-xs text-slate-500 mt-1 max-w-xs">
+                      The phone screen is locked. Test waking it via shake gesture or Volume UP button.
+                    </p>
+                    <div className="mt-5 flex gap-2">
+                      <button
+                        onClick={() => triggerShake(17.2)}
+                        className="py-2 px-4 bg-sky-600 hover:bg-sky-500 text-white font-semibold text-xs rounded-xl shadow-lg shadow-sky-500/20 transition flex items-center gap-2"
+                      >
+                        <Zap className="w-3.5 h-3.5" />
+                        Simulate Shake to Wake
+                      </button>
+                      <button
+                        onClick={pressVolumeUp}
+                        className="py-2 px-4 bg-slate-800 hover:bg-slate-700 text-sky-400 font-semibold text-xs rounded-xl border border-slate-700 transition flex items-center gap-2"
+                      >
+                        <Volume2 className="w-3.5 h-3.5" />
+                        Press Volume UP
+                      </button>
+                    </div>
+                  </div>
+                )}
 
-                    {/* Interactive Volume HUD Overlay */}
-                    {showVolumeSlider && isScreenInteractive && (
-                      <div className="absolute top-10 right-4 z-40 bg-slate-900/95 border border-sky-500/30 rounded-2xl p-2.5 shadow-2xl flex flex-col items-center gap-2 animate-in fade-in duration-150">
-                        <Volume2 className="w-4 h-4 text-sky-400" />
-                        <div className="w-1.5 h-20 bg-slate-800 rounded-full overflow-hidden relative">
-                          <div
-                            className="absolute bottom-0 w-full bg-sky-400 transition-all duration-100 rounded-full"
-                            style={{ height: `${volumeLevel}%` }}
-                          />
-                        </div>
-                        <span className="text-[10px] font-mono text-sky-300 font-bold">{volumeLevel}%</span>
+                {/* Native App Header Bar */}
+                <div className="flex items-center gap-3 pb-3 border-b border-slate-800/80 mb-4">
+                  <div className="w-10 h-10 rounded-xl bg-sky-500/10 border border-sky-500/30 flex items-center justify-center text-sky-400">
+                    <Zap className="w-5 h-5" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <h2 className="text-base font-bold text-white tracking-tight leading-tight">
+                      Shake & Volume Screen Control
+                    </h2>
+                    <p className="text-xs text-sky-400 font-medium">
+                      Native Screen Power & Wake Engine
+                    </p>
+                  </div>
+                  <span
+                    className={`text-[10px] font-bold px-2.5 py-1 rounded-md border tracking-wider ${
+                      isShakeEnabled || (isVolumeUpEnabled && isAccessibilityGranted)
+                        ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30'
+                        : 'bg-slate-800 text-slate-400 border-slate-700'
+                    }`}
+                  >
+                    {isShakeEnabled || (isVolumeUpEnabled && isAccessibilityGranted) ? 'ONLINE' : 'STANDBY'}
+                  </span>
+                </div>
+
+                {/* FEATURE 1: Shake to Turn Screen ON/OFF Card */}
+                <div className="rounded-2xl bg-[#131B2A] border border-slate-800 p-4 mb-4 transition-all">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="flex items-center gap-3">
+                      <div className="w-9 h-9 rounded-xl bg-sky-500/10 flex items-center justify-center text-sky-400">
+                        <Zap className="w-5 h-5" />
                       </div>
-                    )}
-
-                    {/* NOTIFICATION SHADE OVERLAY */}
-                    {isNotificationShadeOpen && isScreenInteractive && (
-                      <div className="absolute inset-x-0 top-7 bottom-0 bg-[#0B0F17]/98 backdrop-blur-md z-40 p-4 flex flex-col justify-between animate-in slide-in-from-top-4 duration-200">
-                        <div className="space-y-4">
-                          {/* Quick Settings Tiles */}
-                          <div className="grid grid-cols-4 gap-2 pt-1">
-                            <div className="bg-sky-500/20 border border-sky-500/40 p-2.5 rounded-2xl flex flex-col items-center gap-1 text-sky-300">
-                              <Wifi className="w-4 h-4 text-sky-400" />
-                              <span className="text-[9px] font-bold">Wi-Fi</span>
-                            </div>
-                            <div className="bg-slate-800 border border-slate-700 p-2.5 rounded-2xl flex flex-col items-center gap-1 text-slate-400">
-                              <Bluetooth className="w-4 h-4" />
-                              <span className="text-[9px] font-bold">Bluetooth</span>
-                            </div>
-                            <div className="bg-slate-800 border border-slate-700 p-2.5 rounded-2xl flex flex-col items-center gap-1 text-slate-400">
-                              <Moon className="w-4 h-4" />
-                              <span className="text-[9px] font-bold">DND</span>
-                            </div>
-                            <div className="bg-sky-500/20 border border-sky-500/40 p-2.5 rounded-2xl flex flex-col items-center gap-1 text-sky-300">
-                              <Zap className="w-4 h-4 text-sky-400" />
-                              <span className="text-[9px] font-bold">Screen Lock</span>
-                            </div>
-                          </div>
-
-                          {/* Persistent Foreground Service Notification */}
-                          <div className="bg-[#131B2A] border border-sky-500/30 rounded-2xl p-3 shadow-lg">
-                            <div className="flex items-start justify-between">
-                              <div className="flex items-center gap-2">
-                                <div className="w-6 h-6 rounded-lg bg-sky-500/20 text-sky-400 flex items-center justify-center">
-                                  <Zap className="w-3.5 h-3.5" />
-                                </div>
-                                <div>
-                                  <div className="text-[11px] font-bold text-white flex items-center gap-1.5">
-                                    <span>Shake &amp; Volume Screen Control</span>
-                                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
-                                  </div>
-                                  <div className="text-[9px] text-slate-400">
-                                    Foreground Service • SENSOR_DELAY_UI
-                                  </div>
-                                </div>
-                              </div>
-                              <span className="text-[9px] text-slate-500">ongoing</span>
-                            </div>
-
-                            <p className="text-[10px] text-slate-300 mt-2">
-                              Monitoring accelerometer motion in background. Cooldown:{' '}
-                              {cooldownRemaining > 0 ? `${(cooldownRemaining / 1000).toFixed(1)}s` : 'Ready'}.
-                            </p>
-
-                            <div className="flex items-center gap-2 mt-3 pt-2 border-t border-slate-800">
-                              <button
-                                onClick={() => {
-                                  setCurrentMobileApp('screencontrol');
-                                  setIsNotificationShadeOpen(false);
-                                }}
-                                className="text-[10px] bg-sky-500 hover:bg-sky-400 text-white font-bold px-3 py-1 rounded-lg transition"
-                              >
-                                Open App Settings
-                              </button>
-                              <button
-                                onClick={() => {
-                                  setIsShakeEnabled(!isShakeEnabled);
-                                  addLog(
-                                    'ScreenCtrlService',
-                                    'I',
-                                    `Service toggled from notification: ${!isShakeEnabled ? 'ENABLED' : 'DISABLED'}`
-                                  );
-                                }}
-                                className="text-[10px] bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold px-3 py-1 rounded-lg border border-slate-700 transition"
-                              >
-                                {isShakeEnabled ? 'Pause Service' : 'Resume Service'}
-                              </button>
-                            </div>
-                          </div>
-                        </div>
-
-                        {/* Close Shade Handle */}
-                        <div
-                          onClick={() => setIsNotificationShadeOpen(false)}
-                          className="pt-2 flex flex-col items-center cursor-pointer text-slate-500 hover:text-white"
-                        >
-                          <div className="w-10 h-1 bg-slate-600 rounded-full mb-1" />
-                          <span className="text-[9px]">Tap to close drawer</span>
-                        </div>
-                      </div>
-                    )}
-
-                    {/* SCREEN CONTENT LAYER */}
-                    {!isScreenInteractive ? (
-                      /* SCREEN OFF (STANDBY / LOCKED STATE) */
-                      <div className="flex-1 bg-black flex flex-col items-center justify-center px-6 text-center select-none relative animate-in fade-in duration-300">
-                        <div className="w-14 h-14 rounded-full bg-slate-900 border border-slate-800 flex items-center justify-center text-slate-500 mb-4">
-                          <Power className="w-6 h-6 text-slate-600" />
-                        </div>
-                        <h3 className="text-sm font-bold text-slate-400">Screen Standby (Screen OFF)</h3>
-                        <p className="text-xs text-slate-600 mt-1 max-w-[220px]">
-                          Device is locked. Shake the phone or press Volume UP (standby) to test screen wake lock.
-                        </p>
-                        <div className="mt-6 flex flex-col gap-2 w-full max-w-[200px]">
-                          <button
-                            onClick={() => triggerShake(17.2)}
-                            className="w-full py-2 bg-sky-600 hover:bg-sky-500 text-white font-semibold text-xs rounded-xl shadow-lg shadow-sky-500/20 transition flex items-center justify-center gap-2"
-                          >
-                            <Zap className="w-3.5 h-3.5" />
-                            Simulate Shake to Wake
-                          </button>
-                          <button
-                            onClick={pressVolumeUp}
-                            className="w-full py-2 bg-slate-800 hover:bg-slate-700 text-sky-400 font-semibold text-xs rounded-xl border border-slate-700 transition flex items-center justify-center gap-2"
-                          >
-                            <Volume2 className="w-3.5 h-3.5" />
-                            Press Volume UP
-                          </button>
-                        </div>
-                      </div>
-                    ) : currentMobileApp === 'chrome' ? (
-                      /* CHROME BROWSER APP */
-                      <ChromeBrowser
-                        onGoHome={() => setCurrentMobileApp('home')}
-                        onOpenScreenControl={() => setCurrentMobileApp('screencontrol')}
-                      />
-                    ) : currentMobileApp === 'home' ? (
-                      /* ANDROID HOME SCREEN */
-                      <AndroidHomeScreen
-                        onOpenApp={(app) => setCurrentMobileApp(app)}
-                        isShakeServiceRunning={isShakeEnabled}
-                      />
-                    ) : currentMobileApp === 'settings' ? (
-                      /* ANDROID SETTINGS APP */
-                      <AndroidSettingsApp
-                        onGoBack={() => setCurrentMobileApp('home')}
-                        isAccessibilityGranted={isAccessibilityGranted}
-                        onToggleAccessibility={() => setIsAccessibilityGranted(!isAccessibilityGranted)}
-                        isBatteryUnrestricted={isBatteryUnrestricted}
-                        onToggleBattery={() => setIsBatteryUnrestricted(!isBatteryUnrestricted)}
-                      />
-                    ) : currentMobileApp === 'recents' ? (
-                      /* ANDROID RECENTS APP SWITCHER */
-                      <div className="flex-1 bg-[#090D15] p-4 flex flex-col justify-between select-none">
-                        <div className="text-center pt-2">
-                          <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">
-                            Recent Applications
-                          </span>
-                        </div>
-
-                        <div className="flex items-center justify-center gap-3 my-auto overflow-x-auto py-2">
-                          {/* Card 1: Shake & Volume Screen Control */}
-                          <div
-                            onClick={() => setCurrentMobileApp('screencontrol')}
-                            className="w-36 h-56 bg-[#131B2A] border-2 border-sky-500/50 rounded-2xl p-2.5 flex flex-col justify-between cursor-pointer hover:scale-105 transition shadow-xl"
-                          >
-                            <div className="flex items-center gap-1.5">
-                              <Zap className="w-3.5 h-3.5 text-sky-400" />
-                              <span className="text-[10px] font-bold text-white truncate">Screen Control</span>
-                            </div>
-                            <div className="flex-1 my-2 bg-slate-900 rounded-lg p-2 text-[9px] text-slate-400 flex flex-col justify-center items-center text-center">
-                              <span className="text-emerald-400 font-bold mb-1">● Service Active</span>
-                              <span>Shake to Wake &amp; Lock</span>
-                            </div>
-                            <button className="w-full py-1 bg-sky-500 text-white rounded-lg text-[9px] font-bold">
-                              Switch
-                            </button>
-                          </div>
-
-                          {/* Card 2: Google Chrome */}
-                          <div
-                            onClick={() => setCurrentMobileApp('chrome')}
-                            className="w-36 h-56 bg-[#1F2228] border-2 border-slate-700 rounded-2xl p-2.5 flex flex-col justify-between cursor-pointer hover:scale-105 transition shadow-xl"
-                          >
-                            <div className="flex items-center gap-1.5">
-                              <Globe className="w-3.5 h-3.5 text-blue-400" />
-                              <span className="text-[10px] font-bold text-white truncate">Chrome</span>
-                            </div>
-                            <div className="flex-1 my-2 bg-slate-900 rounded-lg p-2 text-[9px] text-slate-400 flex flex-col justify-center items-center text-center">
-                              <span className="text-blue-400 font-bold mb-1">Google Search</span>
-                              <span>Mobile Web Browser</span>
-                            </div>
-                            <button className="w-full py-1 bg-blue-600 text-white rounded-lg text-[9px] font-bold">
-                              Switch
-                            </button>
-                          </div>
-                        </div>
-
-                        <div className="flex justify-center pb-2">
-                          <button
-                            onClick={() => setCurrentMobileApp('home')}
-                            className="text-[10px] text-slate-400 hover:text-white px-3 py-1 rounded-full bg-slate-800/60"
-                          >
-                            Clear All Recents
-                          </button>
-                        </div>
-                      </div>
-                    ) : (
-                      /* SHAKE & VOLUME SCREEN CONTROL NATIVE APP */
-                      <div className="flex-1 overflow-y-auto px-4 py-3 flex flex-col gap-4 text-left select-none scrollbar-none">
-                        {/* Native App Header Bar */}
-                        <div className="flex items-center gap-3 pb-1 border-b border-slate-800/60">
-                          <div className="w-10 h-10 rounded-xl bg-sky-500/10 border border-sky-500/30 flex items-center justify-center text-sky-400">
-                            <Zap className="w-5 h-5" />
-                          </div>
-                          <div className="flex-1 min-w-0">
-                            <h2 className="text-sm font-bold text-white tracking-tight leading-tight truncate">
-                              Shake &amp; Volume Screen Control
-                            </h2>
-                            <p className="text-[10px] text-sky-400 font-medium">
-                              Native Screen Power &amp; Wake Engine
-                            </p>
-                          </div>
+                      <div>
+                        <h3 className="text-sm font-bold text-white">Enable Shake to Wake</h3>
+                        <div className="flex items-center gap-1.5 mt-0.5">
                           <span
-                            className={`text-[9px] font-bold px-2 py-0.5 rounded-md border tracking-wider ${
-                              isShakeEnabled || (isVolumeUpEnabled && isAccessibilityGranted)
-                                ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30'
-                                : 'bg-slate-800 text-slate-400 border-slate-700'
+                            className={`w-2 h-2 rounded-full ${
+                              isShakeEnabled ? 'bg-emerald-400 animate-pulse' : 'bg-slate-600'
+                            }`}
+                          />
+                          <span
+                            className={`text-xs font-semibold ${
+                              isShakeEnabled ? 'text-emerald-400' : 'text-slate-500'
                             }`}
                           >
-                            {isShakeEnabled || (isVolumeUpEnabled && isAccessibilityGranted) ? 'ONLINE' : 'STANDBY'}
+                            {isShakeEnabled ? 'Active & Monitoring' : 'Disabled'}
                           </span>
                         </div>
+                      </div>
+                    </div>
 
-                        {/* FEATURE 1 CARD: Shake to Turn Screen ON/OFF */}
-                        <div className="rounded-2xl bg-[#131B2A] border border-slate-800 p-4 transition-all">
-                          <div className="flex items-start justify-between gap-3">
-                            <div className="flex items-center gap-2.5">
-                              <div className="w-8 h-8 rounded-lg bg-sky-500/10 flex items-center justify-center text-sky-400">
-                                <Zap className="w-4 h-4" />
-                              </div>
-                              <div>
-                                <h3 className="text-xs font-bold text-white">Enable Shake to Wake</h3>
-                                <div className="flex items-center gap-1.5 mt-0.5">
-                                  <span
-                                    className={`w-2 h-2 rounded-full ${
-                                      isShakeEnabled ? 'bg-emerald-400 animate-pulse' : 'bg-slate-600'
-                                    }`}
-                                  />
-                                  <span
-                                    className={`text-[11px] font-semibold ${
-                                      isShakeEnabled ? 'text-emerald-400' : 'text-slate-500'
-                                    }`}
-                                  >
-                                    {isShakeEnabled ? 'Active & Monitoring' : 'Disabled'}
-                                  </span>
-                                </div>
-                              </div>
-                            </div>
+                    {/* Switch 1: Shake to Wake */}
+                    <label className="relative inline-flex items-center cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={isShakeEnabled}
+                        onChange={(e) => {
+                          setIsShakeEnabled(e.target.checked);
+                          addLog(
+                            'MainActivity',
+                            'I',
+                            `Toggle: Shake to Wake is now ${e.target.checked ? 'ENABLED' : 'DISABLED'}`
+                          );
+                        }}
+                        className="sr-only peer"
+                      />
+                      <div className="w-11 h-6 bg-slate-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-sky-500 border border-slate-700" />
+                    </label>
+                  </div>
 
-                            {/* Switch 1: Shake to Wake */}
-                            <label className="relative inline-flex items-center cursor-pointer">
-                              <input
-                                type="checkbox"
-                                checked={isShakeEnabled}
-                                onChange={(e) => {
-                                  setIsShakeEnabled(e.target.checked);
-                                  addLog(
-                                    'MainActivity',
-                                    'I',
-                                    `Toggle: Shake to Wake is now ${e.target.checked ? 'ENABLED' : 'DISABLED'}`
-                                  );
-                                }}
-                                className="sr-only peer"
-                              />
-                              <div className="w-11 h-6 bg-slate-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-sky-500 border border-slate-700" />
-                            </label>
-                          </div>
+                  <p className="text-xs text-slate-400 mt-2.5 leading-relaxed">
+                    Detects shaking motion to turn the screen ON or OFF using low-power accelerometer sampling.
+                  </p>
 
-                          <p className="text-[11px] text-slate-400 mt-2.5 leading-relaxed">
-                            Detects shaking motion to turn the screen ON or OFF using low-power accelerometer sampling.
-                          </p>
+                  <div className="mt-3 bg-[#0B132B] rounded-xl px-3 py-2 flex items-center justify-between text-xs text-slate-400 border border-sky-950">
+                    <span>Threshold: {shakeThreshold} m/s² (Filtered)</span>
+                    <span className="text-sky-400 font-mono font-semibold">
+                      Cooldown: {cooldownRemaining > 0 ? `${(cooldownRemaining / 1000).toFixed(1)}s` : '2000 ms'}
+                    </span>
+                  </div>
+                </div>
 
-                          {/* Technical status strip */}
-                          <div className="mt-3 bg-[#0B132B] rounded-lg px-2.5 py-1.5 flex items-center justify-between text-[10px] text-slate-400 border border-sky-950">
-                            <span>Threshold: {shakeThreshold} m/s²</span>
-                            <span className="text-sky-400 font-mono">
-                              Cooldown: {cooldownRemaining > 0 ? `${(cooldownRemaining / 1000).toFixed(1)}s` : '2000 ms'}
-                            </span>
-                          </div>
+                {/* FEATURE 2: Volume UP Button to Turn Screen ON Card */}
+                <div className="rounded-2xl bg-[#131B2A] border border-slate-800 p-4 mb-4 transition-all">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="flex items-center gap-3">
+                      <div className="w-9 h-9 rounded-xl bg-sky-500/10 flex items-center justify-center text-sky-400">
+                        <Volume2 className="w-5 h-5" />
+                      </div>
+                      <div>
+                        <h3 className="text-sm font-bold text-white">Enable Volume UP to Wake</h3>
+                        <div className="flex items-center gap-1.5 mt-0.5">
+                          <span
+                            className={`w-2 h-2 rounded-full ${
+                              !isVolumeUpEnabled
+                                ? 'bg-slate-600'
+                                : !isAccessibilityGranted
+                                ? 'bg-amber-400'
+                                : 'bg-emerald-400 animate-pulse'
+                            }`}
+                          />
+                          <span
+                            className={`text-xs font-semibold ${
+                              !isVolumeUpEnabled
+                                ? 'text-slate-500'
+                                : !isAccessibilityGranted
+                                ? 'text-amber-400'
+                                : 'text-emerald-400'
+                            }`}
+                          >
+                            {!isVolumeUpEnabled
+                              ? 'Disabled'
+                              : !isAccessibilityGranted
+                              ? 'Setup Required'
+                              : 'Active (Screen Standby)'}
+                          </span>
                         </div>
+                      </div>
+                    </div>
 
-                        {/* FEATURE 2 CARD: Volume UP Button to Turn Screen ON */}
-                        <div className="rounded-2xl bg-[#131B2A] border border-slate-800 p-4 transition-all">
-                          <div className="flex items-start justify-between gap-3">
-                            <div className="flex items-center gap-2.5">
-                              <div className="w-8 h-8 rounded-lg bg-sky-500/10 flex items-center justify-center text-sky-400">
-                                <Volume2 className="w-4 h-4" />
-                              </div>
-                              <div>
-                                <h3 className="text-xs font-bold text-white">Enable Volume UP to Wake</h3>
-                                <div className="flex items-center gap-1.5 mt-0.5">
-                                  <span
-                                    className={`w-2 h-2 rounded-full ${
-                                      !isVolumeUpEnabled
-                                        ? 'bg-slate-600'
-                                        : !isAccessibilityGranted
-                                        ? 'bg-amber-400'
-                                        : 'bg-emerald-400 animate-pulse'
-                                    }`}
-                                  />
-                                  <span
-                                    className={`text-[11px] font-semibold ${
-                                      !isVolumeUpEnabled
-                                        ? 'text-slate-500'
-                                        : !isAccessibilityGranted
-                                        ? 'text-amber-400'
-                                        : 'text-emerald-400'
-                                    }`}
-                                  >
-                                    {!isVolumeUpEnabled
-                                      ? 'Disabled'
-                                      : !isAccessibilityGranted
-                                      ? 'Setup Required'
-                                      : 'Active (Screen Standby)'}
-                                  </span>
-                                </div>
-                              </div>
-                            </div>
+                    {/* Switch 2: Volume UP to Wake */}
+                    <label className="relative inline-flex items-center cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={isVolumeUpEnabled}
+                        onChange={(e) => {
+                          setIsVolumeUpEnabled(e.target.checked);
+                          addLog(
+                            'MainActivity',
+                            'I',
+                            `Toggle: Volume UP to Wake is now ${e.target.checked ? 'ENABLED' : 'DISABLED'}`
+                          );
+                        }}
+                        className="sr-only peer"
+                      />
+                      <div className="w-11 h-6 bg-slate-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-sky-500 border border-slate-700" />
+                    </label>
+                  </div>
 
-                            {/* Switch 2: Volume UP to Wake */}
-                            <label className="relative inline-flex items-center cursor-pointer">
-                              <input
-                                type="checkbox"
-                                checked={isVolumeUpEnabled}
-                                onChange={(e) => {
-                                  setIsVolumeUpEnabled(e.target.checked);
-                                  addLog(
-                                    'MainActivity',
-                                    'I',
-                                    `Toggle: Volume UP to Wake is now ${e.target.checked ? 'ENABLED' : 'DISABLED'}`
-                                  );
-                                }}
-                                className="sr-only peer"
-                              />
-                              <div className="w-11 h-6 bg-slate-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-sky-500 border border-slate-700" />
-                            </label>
-                          </div>
+                  <p className="text-xs text-slate-400 mt-2.5 leading-relaxed">
+                    Wakes display using physical Volume UP key via Accessibility KeyEvents while screen is dimmed or standby.
+                  </p>
 
-                          <p className="text-[11px] text-slate-400 mt-2.5 leading-relaxed">
-                            Wakes display using physical Volume UP key via Accessibility KeyEvents while screen is dimmed or standby.
-                          </p>
+                  {/* Warning callout for Android OS restriction */}
+                  <div className="mt-3 bg-amber-950/40 border border-amber-600/30 rounded-xl p-3 text-left">
+                    <div className="flex items-center gap-1.5 text-amber-400 font-bold text-xs">
+                      <AlertTriangle className="w-4 h-4 shrink-0" />
+                      <span>Android OS Hardware Limitation</span>
+                    </div>
+                    <p className="text-[11px] text-amber-200/80 mt-1.5 leading-relaxed">
+                      Android halts physical key scan matrices during deep sleep CPU suspension. Ordinary non-root user apps cannot intercept physical volume keys in deep sleep without active media playback.
+                    </p>
+                  </div>
+                </div>
 
-                          {/* Warning callout for Android OS restriction */}
-                          <div className="mt-3 bg-amber-950/40 border border-amber-600/30 rounded-xl p-2.5 text-left">
-                            <div className="flex items-center gap-1.5 text-amber-400 font-bold text-[11px]">
-                              <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
-                              <span>Android OS Hardware Limitation</span>
-                            </div>
-                            <p className="text-[10px] text-amber-200/80 mt-1 leading-normal">
-                              Android cuts power to key scanning during deep sleep. Normal user apps cannot wake an unrooted phone from deep sleep via physical volume buttons without active media playback.
-                            </p>
-                          </div>
-                        </div>
+                {/* System Setup & Permissions */}
+                <div className="rounded-2xl bg-[#131B2A] border border-slate-800 p-4">
+                  <h3 className="text-sm font-bold text-white">System Setup &amp; Permissions</h3>
+                  <p className="text-xs text-slate-400 mt-0.5">
+                    Required for reliable background execution on stock Android:
+                  </p>
 
-                        {/* SYSTEM SETUP & PERMISSIONS CARD */}
-                        <div className="rounded-2xl bg-[#131B2A] border border-slate-800 p-4">
-                          <h3 className="text-xs font-bold text-white">System Setup &amp; Permissions</h3>
-                          <p className="text-[10px] text-slate-400 mt-0.5">
-                            Required for reliable background execution:
-                          </p>
-
-                          <div className="mt-3 space-y-2.5">
-                            {/* Step 1: Accessibility */}
-                            <div className="flex items-center justify-between bg-slate-900/60 p-2 rounded-xl border border-slate-800/80">
-                              <div className="flex items-center gap-2">
-                                <span className="w-5 h-5 rounded-md bg-sky-500/20 text-sky-300 text-[10px] font-bold flex items-center justify-center">
-                                  1
-                                </span>
-                                <div>
-                                  <div className="text-[11px] font-bold text-slate-200">Accessibility Service</div>
-                                  <div className="text-[9px] text-slate-400">
-                                    {isAccessibilityGranted ? 'Granted & Connected' : 'Screen lock & key observation'}
-                                  </div>
-                                </div>
-                              </div>
-                              <button
-                                onClick={() => {
-                                  setIsAccessibilityGranted((prev) => !prev);
-                                  addLog(
-                                    'Settings',
-                                    'I',
-                                    `Accessibility Service toggled to ${!isAccessibilityGranted ? 'ENABLED' : 'DISABLED'}`
-                                  );
-                                }}
-                                className={`text-[10px] font-semibold px-2.5 py-1 rounded-md transition ${
-                                  isAccessibilityGranted
-                                    ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
-                                    : 'bg-sky-500 hover:bg-sky-400 text-white'
-                                }`}
-                              >
-                                {isAccessibilityGranted ? 'Granted' : 'Configure'}
-                              </button>
-                            </div>
-
-                            {/* Step 2: Battery Whitelist */}
-                            <div className="flex items-center justify-between bg-slate-900/60 p-2 rounded-xl border border-slate-800/80">
-                              <div className="flex items-center gap-2">
-                                <span className="w-5 h-5 rounded-md bg-sky-500/20 text-sky-300 text-[10px] font-bold flex items-center justify-center">
-                                  2
-                                </span>
-                                <div>
-                                  <div className="text-[11px] font-bold text-slate-200">Battery Unrestricted</div>
-                                  <div className="text-[9px] text-slate-400">
-                                    {isBatteryUnrestricted ? 'Unrestricted (Doze Safe)' : 'Prevents Doze sensor freeze'}
-                                  </div>
-                                </div>
-                              </div>
-                              <button
-                                onClick={() => {
-                                  setIsBatteryUnrestricted((prev) => !prev);
-                                  addLog(
-                                    'PowerManager',
-                                    'I',
-                                    `Battery optimization whitelist set to ${!isBatteryUnrestricted ? 'IGNORED' : 'OPTIMIZED'}`
-                                  );
-                                }}
-                                className={`text-[10px] font-semibold px-2.5 py-1 rounded-md transition ${
-                                  isBatteryUnrestricted
-                                    ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
-                                    : 'bg-sky-500 hover:bg-sky-400 text-white'
-                                }`}
-                              >
-                                {isBatteryUnrestricted ? 'Granted' : 'Configure'}
-                              </button>
-                            </div>
+                  <div className="mt-3 space-y-2.5">
+                    {/* Step 1: Accessibility */}
+                    <div className="flex items-center justify-between bg-slate-900/60 p-2.5 rounded-xl border border-slate-800/80">
+                      <div className="flex items-center gap-2.5">
+                        <span className="w-6 h-6 rounded-md bg-sky-500/20 text-sky-300 text-xs font-bold flex items-center justify-center">
+                          1
+                        </span>
+                        <div>
+                          <div className="text-xs font-bold text-slate-200">Accessibility Service</div>
+                          <div className="text-[10px] text-slate-400">
+                            {isAccessibilityGranted ? 'Granted & Connected' : 'Native screen lock & key events'}
                           </div>
                         </div>
                       </div>
-                    )}
-
-                    {/* NATIVE ANDROID 3-BUTTON NAVIGATION BAR */}
-                    <div className="h-9 bg-[#090D15] border-t border-slate-800/80 px-6 flex items-center justify-between text-slate-400">
-                      {/* Back button */}
                       <button
                         onClick={() => {
-                          if (isNotificationShadeOpen) setIsNotificationShadeOpen(false);
-                          else if (currentMobileApp !== 'home') setCurrentMobileApp('home');
+                          setIsAccessibilityGranted((prev) => !prev);
+                          addLog(
+                            'Settings',
+                            'I',
+                            `Accessibility Service set to ${!isAccessibilityGranted ? 'ENABLED' : 'DISABLED'}`
+                          );
                         }}
-                        className="p-1 hover:text-white transition active:scale-90"
-                        title="Back Button"
+                        className={`text-xs font-semibold px-3 py-1 rounded-md transition ${
+                          isAccessibilityGranted
+                            ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
+                            : 'bg-sky-500 hover:bg-sky-400 text-white'
+                        }`}
                       >
-                        <ChevronLeft className="w-4 h-4" />
-                      </button>
-
-                      {/* Home button */}
-                      <button
-                        onClick={() => {
-                          setIsNotificationShadeOpen(false);
-                          setCurrentMobileApp('home');
-                        }}
-                        className="p-1 hover:text-white transition active:scale-90"
-                        title="Home Button"
-                      >
-                        <div className="w-3.5 h-3.5 rounded-full border-2 border-current" />
-                      </button>
-
-                      {/* Recents button */}
-                      <button
-                        onClick={() => {
-                          setIsNotificationShadeOpen(false);
-                          setCurrentMobileApp(currentMobileApp === 'recents' ? 'screencontrol' : 'recents');
-                        }}
-                        className="p-1 hover:text-white transition active:scale-90"
-                        title="Recents / App Switcher"
-                      >
-                        <Square className="w-3.5 h-3.5" />
+                        {isAccessibilityGranted ? 'Granted' : 'Configure'}
                       </button>
                     </div>
 
-                    {/* Native Android Gesture Bar */}
-                    <div className="h-4 bg-transparent flex items-center justify-center">
-                      <div className="w-28 h-1 bg-slate-600 rounded-full" />
+                    {/* Step 2: Battery Whitelist */}
+                    <div className="flex items-center justify-between bg-slate-900/60 p-2.5 rounded-xl border border-slate-800/80">
+                      <div className="flex items-center gap-2.5">
+                        <span className="w-6 h-6 rounded-md bg-sky-500/20 text-sky-300 text-xs font-bold flex items-center justify-center">
+                          2
+                        </span>
+                        <div>
+                          <div className="text-xs font-bold text-slate-200">Battery Unrestricted</div>
+                          <div className="text-[10px] text-slate-400">
+                            {isBatteryUnrestricted ? 'Unrestricted (Doze Safe)' : 'Prevents Doze sensor freeze'}
+                          </div>
+                        </div>
+                      </div>
+                      <button
+                        onClick={() => {
+                          setIsBatteryUnrestricted((prev) => !prev);
+                          addLog(
+                            'PowerManager',
+                            'I',
+                            `Battery optimization whitelist set to ${!isBatteryUnrestricted ? 'IGNORED' : 'OPTIMIZED'}`
+                          );
+                        }}
+                        className={`text-xs font-semibold px-3 py-1 rounded-md transition ${
+                          isBatteryUnrestricted
+                            ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
+                            : 'bg-sky-500 hover:bg-sky-400 text-white'
+                        }`}
+                      >
+                        {isBatteryUnrestricted ? 'Granted' : 'Configure'}
+                      </button>
                     </div>
                   </div>
                 </div>
               </div>
             </div>
 
-            {/* Right Column: Hardware Simulation Controls & Live Logcat */}
-            <div className="lg:col-span-7 flex flex-col gap-6">
+            {/* Right Column: Hardware Sensor & Trigger Console + Logcat */}
+            <div className="lg:col-span-6 flex flex-col gap-6">
               {/* Simulation Testing Control Panel */}
               <div className="rounded-2xl bg-[#0F1422] border border-slate-800 p-5 shadow-xl">
                 <div className="flex items-center justify-between mb-4">
@@ -1025,7 +652,7 @@ kotlin-android = { id = "org.jetbrains.kotlin.android", version.ref = "kotlin" }
                           </span>
                         )}
                       </div>
-                      <p className="text-[11px] text-slate-400 mt-1">
+                      <p className="text-xs text-slate-400 mt-1">
                         Generates a simulated 3-axis accelerometer spike exceeding the threshold.
                       </p>
                     </div>
@@ -1053,7 +680,7 @@ kotlin-android = { id = "org.jetbrains.kotlin.android", version.ref = "kotlin" }
                         <span className="text-xs font-bold text-slate-200">Hardware Volume UP Key</span>
                         <span className="text-[10px] font-mono text-sky-400">KEYCODE_VOLUME_UP</span>
                       </div>
-                      <p className="text-[11px] text-slate-400 mt-1">
+                      <p className="text-xs text-slate-400 mt-1">
                         Fires key event to test AccessibilityService interception in standby vs deep sleep.
                       </p>
                     </div>
@@ -1069,7 +696,7 @@ kotlin-android = { id = "org.jetbrains.kotlin.android", version.ref = "kotlin" }
                       <button
                         onClick={pressPowerButton}
                         className="py-2.5 px-3 bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 rounded-xl font-bold text-xs flex items-center justify-center transition active:scale-95"
-                        title="Toggle Screen Power"
+                        title="Toggle Screen Power (Lock/Wake)"
                       >
                         <Power className="w-4 h-4" />
                       </button>
@@ -1080,7 +707,7 @@ kotlin-android = { id = "org.jetbrains.kotlin.android", version.ref = "kotlin" }
                 {/* Sensor Threshold Slider */}
                 <div className="mt-4 pt-4 border-t border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
                   <div className="flex items-center gap-2">
-                    <span className="text-slate-400">Accelerometer Shake Sensitivity:</span>
+                    <span className="text-slate-400">Shake Sensitivity:</span>
                     <span className="font-mono text-sky-400 font-bold">{shakeThreshold.toFixed(1)} m/s²</span>
                     <span className="text-[10px] text-slate-500">
                       (Default: 13.5 m/s² prevents pocket false-triggers)
@@ -1103,18 +730,16 @@ kotlin-android = { id = "org.jetbrains.kotlin.android", version.ref = "kotlin" }
               </div>
 
               {/* Live Android Logcat Console */}
-              <div className="rounded-2xl bg-[#0B0F17] border border-slate-800 shadow-xl overflow-hidden flex flex-col h-[340px]">
-                {/* Console Header */}
+              <div className="rounded-2xl bg-[#0B0F17] border border-slate-800 shadow-xl overflow-hidden flex flex-col h-[320px]">
                 <div className="bg-[#121722] px-4 py-2.5 border-b border-slate-800 flex items-center justify-between">
                   <div className="flex items-center gap-2">
                     <Terminal className="w-4 h-4 text-emerald-400" />
                     <span className="text-xs font-bold font-mono text-slate-200">
-                      Android Logcat Stream (adb logcat -s ShakeDetector:D ScreenCtrlService:I ScreenAccessService:I)
+                      Android Logcat Stream
                     </span>
                   </div>
 
                   <div className="flex items-center gap-2">
-                    {/* Log Filter Pills */}
                     <div className="flex bg-slate-900 rounded-lg p-0.5 border border-slate-800 text-[10px] font-mono">
                       {['ALL', 'ShakeDetector', 'ScreenAccessService', 'PowerUtils'].map((tag) => (
                         <button
@@ -1139,7 +764,6 @@ kotlin-android = { id = "org.jetbrains.kotlin.android", version.ref = "kotlin" }
                   </div>
                 </div>
 
-                {/* Log stream content */}
                 <div
                   ref={logContainerRef}
                   className="flex-1 p-3 font-mono text-[11px] overflow-y-auto space-y-1.5 scrollbar-thin select-text"
@@ -1175,7 +799,6 @@ kotlin-android = { id = "org.jetbrains.kotlin.android", version.ref = "kotlin" }
         {/* TAB 2: Source Code Explorer & Downloader */}
         {activeTab === 'code' && (
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
-            {/* File List Navigation */}
             <div className="lg:col-span-4 bg-[#0F1422] border border-slate-800 rounded-2xl p-4 shadow-xl">
               <div className="flex items-center justify-between mb-3 pb-2 border-b border-slate-800">
                 <span className="text-xs font-bold uppercase tracking-wider text-slate-300 flex items-center gap-1.5">
@@ -1210,7 +833,6 @@ kotlin-android = { id = "org.jetbrains.kotlin.android", version.ref = "kotlin" }
                 })}
               </div>
 
-              {/* Download ZIP button */}
               <div className="mt-4 pt-3 border-t border-slate-800">
                 <button
                   onClick={exportProjectZip}
@@ -1221,12 +843,11 @@ kotlin-android = { id = "org.jetbrains.kotlin.android", version.ref = "kotlin" }
                   {isExportingZip ? 'Packaging ZIP...' : 'Download Full Android Project (.ZIP)'}
                 </button>
                 <p className="text-[10px] text-slate-500 text-center mt-2">
-                  Unzip and open directly in Android Studio Ladybug/Koala.
+                  Unzip and open directly in Android Studio.
                 </p>
               </div>
             </div>
 
-            {/* Code Viewer Panel */}
             <div className="lg:col-span-8 bg-[#0B0F17] border border-slate-800 rounded-2xl shadow-xl overflow-hidden flex flex-col">
               <div className="bg-[#121722] px-4 py-3 border-b border-slate-800 flex items-center justify-between">
                 <div>
@@ -1255,7 +876,6 @@ kotlin-android = { id = "org.jetbrains.kotlin.android", version.ref = "kotlin" }
                 </button>
               </div>
 
-              {/* Syntax / Code content */}
               <pre className="p-4 font-mono text-xs text-slate-200 overflow-x-auto max-h-[580px] overflow-y-auto leading-relaxed select-text scrollbar-thin">
                 <code>{selectedFile.content}</code>
               </pre>
